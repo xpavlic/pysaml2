@@ -77,6 +77,16 @@ RSA_1_5 = "http://www.w3.org/2001/04/xmlenc#rsa-1_5"
 TRIPLE_DES_CBC = "http://www.w3.org/2001/04/xmlenc#tripledes-cbc"
 RSA_OAEP_MGF1P = "http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p"
 
+XMLSEC_SESSION_KEY_URI_TO_ALG = {
+    "http://www.w3.org/2001/04/xmlenc#tripledes-cbc": "des-192",
+    "http://www.w3.org/2001/04/xmlenc#aes128-cbc": "aes-128",
+    "http://www.w3.org/2001/04/xmlenc#aes192-cbc": "aes-192",
+    "http://www.w3.org/2001/04/xmlenc#aes256-cbc": "aes-256",
+    "http://www.w3.org/2009/xmlenc11#aes128-gcm": "aes-128",
+    "http://www.w3.org/2009/xmlenc11#aes192-gcm": "aes-192",
+    "http://www.w3.org/2009/xmlenc11#aes256-gcm": "aes-256",
+}
+
 
 class SigverError(SAMLError):
     pass
@@ -327,7 +337,7 @@ def signed_instance_factory(instance, seccont, elements_to_sign=None):
     if not isinstance(instance, str):
         signed_xml = instance.to_string()
 
-    for (node_name, nodeid) in elements_to_sign:
+    for node_name, nodeid in elements_to_sign:
         signed_xml = seccont.sign_statement(signed_xml, node_name=node_name, node_id=nodeid)
 
     return signed_xml
@@ -486,9 +496,9 @@ def parse_xmlsec_verify_output(output, version=None):
                 raise XmlsecError(output)
     else:
         for line in output.splitlines():
-            if line == 'Verification status: OK':
+            if line == "Verification status: OK":
                 return True
-            elif line == 'Verification status: FAILED':
+            elif line == "Verification status: FAILED":
                 raise XmlsecError(output)
     raise XmlsecError(output)
 
@@ -854,7 +864,7 @@ class CryptoBackendXmlSec1(CryptoBackend):
         with NamedTemporaryFile(suffix=".xml") as ntf:
             com_list.extend(["--output", ntf.name])
             if self.version_nums >= (1, 3):
-                com_list.extend(['--lax-key-search'])
+                com_list.extend(["--lax-key-search"])
             com_list += extra_args
 
             logger.debug("xmlsec command: %s", " ".join(com_list))
@@ -1206,7 +1216,6 @@ class SecurityContext:
         sec_backend=None,
         delete_tmpfiles=True,
     ):
-
         if not isinstance(crypto, CryptoBackend):
             raise ValueError("crypto should be of type CryptoBackend")
         self.crypto = crypto
@@ -1733,7 +1742,7 @@ class SecurityContext:
         :param key_file: A file that contains the key to be used
         :return: A possibly multiple signed statement
         """
-        for (item, sid) in to_sign:
+        for item, sid in to_sign:
             if not sid:
                 if not item.id:
                     sid = item.id = sid()

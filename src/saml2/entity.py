@@ -60,7 +60,7 @@ from saml2.samlp import NameIDMappingRequest
 from saml2.samlp import SessionIndex
 from saml2.samlp import artifact_resolve_from_string
 from saml2.samlp import response_from_string
-from saml2.sigver import SignatureError
+from saml2.sigver import SignatureError, XMLSEC_SESSION_KEY_URI_TO_ALG
 from saml2.sigver import SigverError
 from saml2.sigver import get_pem_wrapped_unwrapped
 from saml2.sigver import make_temp
@@ -77,7 +77,6 @@ from saml2.virtual_org import VirtualOrg
 from saml2.xmldsig import DIGEST_ALLOWED_ALG
 from saml2.xmldsig import SIG_ALLOWED_ALG
 from saml2.xmldsig import DefaultSignature
-
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +179,9 @@ class Entity(HTTPBase):
         self.debug = self.config.debug
 
         self.sec = security_context(self.config)
+
+        self.encrypt_assertion_session_key_algs = self.config.encrypt_assertion_session_key_algs
+        self.encrypt_assertion_cert_key_algs = self.config.encrypt_assertion_cert_key_algs
 
         if virtual_organization:
             if isinstance(virtual_organization, str):
@@ -644,23 +646,52 @@ class Entity(HTTPBase):
                 return True
         return False
 
-    def _encrypt_assertion(self, encrypt_cert, sp_entity_id, response, node_xpath=None):
+    def _encrypt_assertion(
+        self,
+        encrypt_cert,
+        sp_entity_id,
+        response,
+        node_xpath=None,
+        encrypt_cert_session_key_alg=None,
+        encrypt_cert_cert_key_alg=None,
+    ):
         """Encryption of assertions.
 
         :param encrypt_cert: Certificate to be used for encryption.
         :param sp_entity_id: Entity ID for the calling service provider.
         :param response: A samlp.Response
+        :param encrypt_cert_cert_key_alg: algorithm used for encrypting session key
+        :param encrypt_cert_session_key_alg: algorithm used for encrypting assertion
+        :param encrypt_cert_cert_key_alg:
         :param node_xpath: Unquie path to the element to be encrypted.
         :return: A new samlp.Resonse with the designated assertion encrypted.
         """
         _certs = []
 
         if encrypt_cert:
-            _certs.append((None, encrypt_cert))
+            _certs.append((None, encrypt_cert, None, None))
         elif sp_entity_id is not None:
-            _certs = self.metadata.certs(sp_entity_id, "any", "encryption")
+            _certs = self.metadata.certs(sp_entity_id, "any", "encryption", get_with_usage_and_encryption_methods=True)
         exception = None
-        for _cert_name, _cert in _certs:
+
+        # take certs with encryption and encryption_methods first (priority 1)
+        sorted_certs = []
+        for _unpacked_cert in _certs:
+            _cert_name, _cert, _cert_use, _cert_encryption_methods = _unpacked_cert
+            if _cert_use == "encryption" and _cert_encryption_methods:
+                sorted_certs.append(_unpacked_cert)
+
+        # take certs with encryption or encryption_methods (priority 2)
+        for _unpacked_cert in _certs:
+            _cert_name, _cert, _cert_use, _cert_encryption_methods = _unpacked_cert
+            if _cert_use == "encryption" and _unpacked_cert not in sorted_certs:
+                sorted_certs.append(_unpacked_cert)
+
+        for _unpacked_cert in _certs:
+            if _unpacked_cert not in sorted_certs:
+                sorted_certs.append(_unpacked_cert)
+
+        for _cert_name, _cert, _cert_use, _cert_encryption_methods in sorted_certs:
             wrapped_cert, unwrapped_cert = get_pem_wrapped_unwrapped(_cert)
             try:
                 tmp = make_temp(
@@ -668,10 +699,44 @@ class Entity(HTTPBase):
                     decode=False,
                     delete_tmpfiles=self.config.delete_tmpfiles,
                 )
+
+                msg_enc = (
+                    encrypt_cert_session_key_alg
+                    if encrypt_cert_session_key_alg
+                    else self.encrypt_assertion_session_key_algs[0]
+                )
+                key_enc = (
+                    encrypt_cert_cert_key_alg if encrypt_cert_cert_key_alg else self.encrypt_assertion_cert_key_algs[0]
+                )
+
+                if encrypt_cert != _cert and _cert_encryption_methods:
+                    viable_session_key_algs = []
+                    for alg in self.encrypt_assertion_session_key_algs:
+                        for cert_method in _cert_encryption_methods:
+                            if cert_method.get("algorithm") == alg:
+                                viable_session_key_algs.append(alg)
+
+                    viable_cert_algs = []
+                    for alg in self.encrypt_assertion_cert_key_algs:
+                        for cert_method in _cert_encryption_methods:
+                            if cert_method.get("algorithm") == alg:
+                                viable_cert_algs.append(alg)
+
+                    if viable_session_key_algs:
+                        msg_enc = viable_session_key_algs[0]
+
+                    if viable_cert_algs:
+                        key_enc = viable_cert_algs[0]
+
+                key_type = XMLSEC_SESSION_KEY_URI_TO_ALG.get(msg_enc)
+
                 response = self.sec.encrypt_assertion(
                     response,
                     tmp.name,
-                    pre_encryption_part(key_name=_cert_name, encrypt_cert=unwrapped_cert),
+                    pre_encryption_part(
+                        key_name=_cert_name, encrypt_cert=unwrapped_cert, msg_enc=msg_enc, key_enc=key_enc
+                    ),
+                    key_type=key_type,
                     node_xpath=node_xpath,
                 )
                 return response
@@ -697,7 +762,11 @@ class Entity(HTTPBase):
         encrypt_assertion_self_contained=False,
         encrypted_advice_attributes=False,
         encrypt_cert_advice=None,
+        encrypt_cert_advice_cert_key_alg=None,
+        encrypt_cert_advice_session_key_alg=None,
         encrypt_cert_assertion=None,
+        encrypt_cert_assertion_cert_key_alg=None,
+        encrypt_cert_assertion_session_key_alg=None,
         sign_assertion=None,
         pefim=False,
         sign_alg=None,
@@ -731,8 +800,16 @@ class Entity(HTTPBase):
         element should be encrypted.
         :param encrypt_cert_advice: Certificate to be used for encryption of
         assertions in the advice element.
+        :param encrypt_cert_advice_cert_key_alg: algorithm used for encrypting session key
+        by encrypt_cert_advice
+        :param encrypt_cert_advice_session_key_alg: algorithm used for encrypting assertion
+        when using encrypt_cert_advice
         :param encrypt_cert_assertion: Certificate to be used for encryption
         of assertions.
+        :param encrypt_cert_assertion_cert_key_alg: algorithm used for encrypting session key
+        by encrypt_cert_assertion
+        :param encrypt_cert_assertion_session_key_alg: algorithm used for encrypting assertion when
+        using encrypt_cert_assertion
         :param sign_assertion: True if assertions should be signed.
         :param pefim: True if a response according to the PEFIM profile
         should be created.
@@ -856,6 +933,8 @@ class Entity(HTTPBase):
                             sp_entity_id,
                             response,
                             node_xpath=node_xpath,
+                            encrypt_cert_session_key_alg=encrypt_cert_advice_session_key_alg,
+                            encrypt_cert_cert_key_alg=encrypt_cert_advice_cert_key_alg,
                         )
                         response = response_from_string(response)
 
@@ -900,7 +979,13 @@ class Entity(HTTPBase):
                     response = signed_instance_factory(response, self.sec, to_sign_assertion)
 
                 # XXX encrypt assertion
-                response = self._encrypt_assertion(encrypt_cert_assertion, sp_entity_id, response)
+                response = self._encrypt_assertion(
+                    encrypt_cert_assertion,
+                    sp_entity_id,
+                    response,
+                    encrypt_cert_session_key_alg=encrypt_cert_assertion_session_key_alg,
+                    encrypt_cert_cert_key_alg=encrypt_cert_assertion_cert_key_alg,
+                )
             else:
                 # XXX sign other parts! (defiend by to_sign)
                 if to_sign:
@@ -1357,7 +1442,6 @@ class Entity(HTTPBase):
         digest_alg=None,
         **kwargs,
     ):
-
         rinfo = self.response_args(request, bindings)
 
         response = self._status_response(

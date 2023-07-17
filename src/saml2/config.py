@@ -76,6 +76,8 @@ COMMON_ARGS = [
     "signing_algorithm",
     "digest_algorithm",
     "http_client_timeout",
+    "encrypt_assertion_session_key_algs",
+    "encrypt_assertion_cert_key_algs",
 ]
 
 SP_ARGS = [
@@ -229,6 +231,8 @@ class Config:
         self.signing_algorithm = None
         self.digest_algorithm = None
         self.http_client_timeout = None
+        self.encrypt_assertion_session_key_algs = ["http://www.w3.org/2001/04/xmlenc#tripledes-cbc"]
+        self.encrypt_assertion_cert_key_algs = ["http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p"]
 
     def setattr(self, context, attr, val):
         if context == "":

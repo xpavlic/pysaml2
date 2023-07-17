@@ -656,6 +656,42 @@ Example::
 
     "verify_encrypt_cert_assertion": verify_encrypt_cert
 
+encrypt_assertion_session_key_algs
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+List of block encryption algorithms which can be used to encrypt assertion.
+Values order is from highest to lowest priority. Default value is ["http://www.w3.org/2001/04/xmlenc#tripledes-cbc"]
+
+Valid values are:
+    - "http://www.w3.org/2001/04/xmlenc#tripledes-cbc"
+    - "http://www.w3.org/2001/04/xmlenc#aes128-cbc"
+    - "http://www.w3.org/2001/04/xmlenc#aes192-cbc"
+    - "http://www.w3.org/2001/04/xmlenc#aes256-cbc"
+    - "http://www.w3.org/2009/xmlenc11#aes128-gcm"
+    - "http://www.w3.org/2009/xmlenc11#aes192-gcm"
+    - "http://www.w3.org/2009/xmlenc11#aes256-gcm"
+
+Example::
+
+    "encrypt_assertion_session_key_algs" : [
+        "http://www.w3.org/2009/xmlenc11#aes256-gcm",
+        "http://www.w3.org/2001/04/xmlenc#tripledes-cbc"
+    ]
+
+encrypt_assertion_cert_key_algs
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+List of key transport algorithms which can be used to encrypt session key used to encrypting assertion.
+Values order is from highest to lowest priority. Default value is ["http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p"]
+
+Valid values are:
+    - "http://www.w3.org/2001/04/xmlenc#rsa-1_5"
+    - "http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p"
+
+Example::
+
+    "encrypt_assertion_cert_key_algs": [
+        "http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p",
+        "http://www.w3.org/2001/04/xmlenc#rsa-1_5"
+    ]
 
 Specific directives
 -------------------
