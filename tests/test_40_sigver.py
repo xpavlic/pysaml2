@@ -132,6 +132,7 @@ class FakeConfig:
     tmp_key_file = None
     validate_certificate = False
     delete_tmpfiles = True
+    encrypt_key_type = "des-192"
 
     def getattr(self, attr, default):
         return getattr(self, attr, default)

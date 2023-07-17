@@ -657,6 +657,13 @@ Example::
     "verify_encrypt_cert_assertion": verify_encrypt_cert
 
 
+encrypt_key_type
+^^^^^^^^^^^^^^^^
+
+Specifies algorithm used when encrypting the SAML message.
+Default is ``des-192``.
+
+
 Specific directives
 -------------------
 
@@ -684,6 +691,13 @@ encrypt_assertion
 
 Specifies if the IdP should encrypt the assertions. Can be ``True`` or ``False``.
 Default is ``False``.
+
+
+encrypt_assertion_key_type
+""""""""""""""""""""""""""
+
+Specifies session key algorithm used when encrypting the assertions.
+Default is ``des-192``.
 
 encrypted_advice_attributes
 """""""""""""""""""""""""""
