@@ -60,7 +60,7 @@ from saml2.samlp import NameIDMappingRequest
 from saml2.samlp import SessionIndex
 from saml2.samlp import artifact_resolve_from_string
 from saml2.samlp import response_from_string
-from saml2.sigver import SignatureError, XMLSEC_SESSION_KEY_URI_TO_ALG
+from saml2.sigver import SignatureError, XMLSEC_SESSION_KEY_URI_TO_ALG, RSA_OAEP
 from saml2.sigver import SigverError
 from saml2.sigver import get_pem_wrapped_unwrapped
 from saml2.sigver import make_temp
@@ -182,6 +182,7 @@ class Entity(HTTPBase):
 
         self.encrypt_assertion_session_key_algs = self.config.encrypt_assertion_session_key_algs
         self.encrypt_assertion_cert_key_algs = self.config.encrypt_assertion_cert_key_algs
+        self.default_rsa_oaep_mgf_alg = self.config.default_rsa_oaep_mgf_alg
 
         if virtual_organization:
             if isinstance(virtual_organization, str):
@@ -196,7 +197,6 @@ class Entity(HTTPBase):
             self.sourceid = self.metadata.construct_source_id()
         else:
             self.sourceid = {}
-
         self.msg_cb = msg_cb
 
     def reload_metadata(self, metadata_conf):
@@ -646,6 +646,13 @@ class Entity(HTTPBase):
                 return True
         return False
 
+    def _get_first_matching_alg(self, priority_list, metadata_list):
+        for alg in priority_list:
+            for cert_method in metadata_list:
+                if cert_method.get("algorithm") == alg:
+                    return cert_method
+        return None
+
     def _encrypt_assertion(
         self,
         encrypt_cert,
@@ -709,24 +716,21 @@ class Entity(HTTPBase):
                     encrypt_cert_cert_key_alg if encrypt_cert_cert_key_alg else self.encrypt_assertion_cert_key_algs[0]
                 )
 
+                rsa_oaep_mgf_alg = self.default_rsa_oaep_mgf_alg if key_enc == RSA_OAEP else None
                 if encrypt_cert != _cert and _cert_encryption_methods:
-                    viable_session_key_algs = []
-                    for alg in self.encrypt_assertion_session_key_algs:
-                        for cert_method in _cert_encryption_methods:
-                            if cert_method.get("algorithm") == alg:
-                                viable_session_key_algs.append(alg)
+                    viable_session_key_alg = self._get_first_matching_alg(
+                        self.encrypt_assertion_session_key_algs, _cert_encryption_methods
+                    )
+                    if viable_session_key_alg:
+                        msg_enc = viable_session_key_alg.get("algorithm")
 
-                    viable_cert_algs = []
-                    for alg in self.encrypt_assertion_cert_key_algs:
-                        for cert_method in _cert_encryption_methods:
-                            if cert_method.get("algorithm") == alg:
-                                viable_cert_algs.append(alg)
-
-                    if viable_session_key_algs:
-                        msg_enc = viable_session_key_algs[0]
-
-                    if viable_cert_algs:
-                        key_enc = viable_cert_algs[0]
+                    viable_cert_alg = self._get_first_matching_alg(
+                        self.encrypt_assertion_cert_key_algs, _cert_encryption_methods
+                    )
+                    if viable_cert_alg:
+                        key_enc = viable_cert_alg.get("algorithm")
+                        mgf = viable_cert_alg.get("mgf")
+                        rsa_oaep_mgf_alg = mgf.get("algorithm") if mgf else None
 
                 key_type = XMLSEC_SESSION_KEY_URI_TO_ALG.get(msg_enc)
 
@@ -734,7 +738,11 @@ class Entity(HTTPBase):
                     response,
                     tmp.name,
                     pre_encryption_part(
-                        key_name=_cert_name, encrypt_cert=unwrapped_cert, msg_enc=msg_enc, key_enc=key_enc
+                        key_name=_cert_name,
+                        encrypt_cert=unwrapped_cert,
+                        msg_enc=msg_enc,
+                        key_enc=key_enc,
+                        rsa_oaep_mgf_alg=rsa_oaep_mgf_alg,
                     ),
                     key_type=key_type,
                     node_xpath=node_xpath,
